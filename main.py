@@ -223,46 +223,97 @@ class VirtualBackgroundApp(QMainWindow):
 
 
     def setup_audio_visualization(self):
-        """Setup audio visualization in the main UI"""
+        """Setup audio visualization with proper UI integration"""
         try:
-            # Create audio level container
-            self.audio_container = QWidget()
-            audio_layout = QHBoxLayout(self.audio_container)
+            # Create container for audio visualization
+            audio_container = QWidget()
+            audio_layout = QVBoxLayout(audio_container)
             
-            # Create mic label and level indicator
+            # Create mic label
             mic_label = QLabel("Mic")
+            mic_label.setAlignment(Qt.AlignCenter)
+            audio_layout.addWidget(mic_label)
+            
+            # Create progress bar for audio level
             self.audio_level = QProgressBar()
             self.audio_level.setOrientation(Qt.Vertical)
-            self.audio_level.setMinimum(0)
-            self.audio_level.setMaximum(100)
+            self.audio_level.setRange(0, 100)
             self.audio_level.setValue(0)
             self.audio_level.setFixedWidth(20)
             self.audio_level.setFixedHeight(100)
             self.audio_level.setTextVisible(False)
             self.audio_level.setStyleSheet("""
                 QProgressBar {
+                    background-color: #2d2d2d;
                     border: 2px solid grey;
-                    border-radius: 5px;
-                    background-color: #303030;
+                    border-radius: 2px;
                 }
                 QProgressBar::chunk {
                     background-color: #4CAF50;
-                    width: 20px;
                 }
             """)
-            
-            # Add to layout
-            audio_layout.addWidget(mic_label)
             audio_layout.addWidget(self.audio_level)
             
-            # Add to main UI controls
-            self.controls_layout.addWidget(self.audio_container)
+            # Add stretch to keep widgets at top
+            audio_layout.addStretch()
             
-            # Start audio monitoring
+            # Add to the right side of the main window
+            if hasattr(self, 'right_controls'):
+                self.right_controls.addWidget(audio_container)
+            else:
+                print("Warning: right_controls not found")
+                # Fallback to main controls if available
+                if hasattr(self, 'controls_layout'):
+                    self.controls_layout.addWidget(audio_container)
+                else:
+                    print("Error: No suitable layout found for audio visualization")
+            
+            # Setup audio monitoring in a separate thread
             self.start_audio_monitoring()
             print("Audio visualization setup complete")
+            
         except Exception as e:
             print(f"Audio visualization setup error: {e}")
+
+    def start_audio_monitoring(self):
+        """Start monitoring audio levels in a separate thread"""
+        try:
+            # Initialize PyAudio
+            self.audio = pyaudio.PyAudio()
+            
+            # Setup stream
+            self.audio_stream = self.audio.open(
+                format=pyaudio.paFloat32,
+                channels=1,
+                rate=44100,
+                input=True,
+                frames_per_buffer=1024,
+                stream_callback=self.audio_callback
+            )
+            
+            # Start the stream
+            self.audio_stream.start_stream()
+            print("Audio monitoring started")
+            
+        except Exception as e:
+            print(f"Audio monitoring start error: {e}")
+
+    def audio_callback(self, in_data, frame_count, time_info, status):
+        """Process audio data and update visualization"""
+        try:
+            # Convert audio data to numpy array
+            audio_data = np.frombuffer(in_data, dtype=np.float32)
+            
+            # Calculate volume level (0-100)
+            volume = min(100, int(np.abs(audio_data).mean() * 400))
+            
+            # Update progress bar
+            self.audio_level.setValue(volume)
+            
+            return (in_data, pyaudio.paContinue)
+        except Exception as e:
+            print(f"Audio callback error: {e}")
+            return (in_data, pyaudio.paContinue)
 
     def audio_callback(self, in_data, frame_count, time_info, status):
         """Handle audio data for visualization"""
@@ -1264,22 +1315,45 @@ class VirtualBackgroundApp(QMainWindow):
             raise
 
     def get_video_background(self, h, w):
-        """Get current video background frame"""
+        """Get current video background frame with robust handling"""
         try:
             if not self.video_backgrounds:
+                print("No video backgrounds available")
                 return np.ones((h, w, 3), dtype=np.uint8) * [0, 120, 255]
             
-            if not hasattr(self, 'current_video') or self.current_video is None:
-                self.current_video = cv2.VideoCapture(self.video_backgrounds[self.current_video_index])
+            current_video_path = self.video_backgrounds[self.current_video_index]
             
-            ret, video_frame = self.current_video.read()
+            # If video not initialized or different video selected
+            if not hasattr(self, 'current_video') or \
+            self.current_video is None or \
+            not hasattr(self, 'current_video_path') or \
+            self.current_video_path != current_video_path:
+                
+                # Clean up old video
+                if hasattr(self, 'current_video') and self.current_video is not None:
+                    self.current_video.release()
+                
+                print(f"Opening video: {current_video_path}")
+                self.current_video = cv2.VideoCapture(current_video_path)
+                self.current_video_path = current_video_path
+                
+                if not self.current_video.isOpened():
+                    print(f"Failed to open video: {current_video_path}")
+                    return np.ones((h, w, 3), dtype=np.uint8) * [0, 120, 255]
+            
+            # Read frame
+            ret, frame = self.current_video.read()
+            
+            # If reached end of video, reset to beginning
             if not ret:
                 self.current_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, video_frame = self.current_video.read()
+                ret, frame = self.current_video.read()
             
-            if ret and video_frame is not None:
-                return cv2.resize(video_frame, (w, h))
-            
+            if ret and frame is not None:
+                frame = cv2.resize(frame, (w, h))
+                return frame
+                
+            print("Failed to read video frame")
             return np.ones((h, w, 3), dtype=np.uint8) * [0, 120, 255]
             
         except Exception as e:
@@ -1320,26 +1394,28 @@ class VirtualBackgroundApp(QMainWindow):
             print(f"Mode change error: {e}")
 
     def init_video_background(self):
-        """Initialize or reinitialize video background"""
+        """Initialize current video background with diagnostic info"""
         try:
             if self.video_backgrounds:
-                # Close existing video if any
-                if hasattr(self, 'current_video') and self.current_video is not None:
-                    self.current_video.release()
-                
-                # Open new video
                 video_path = self.video_backgrounds[self.current_video_index]
-                self.current_video = cv2.VideoCapture(video_path)
+                print(f"\nInitializing video background:")
+                print(f"Path: {video_path}")
+                print(f"Index: {self.current_video_index}")
+                print(f"Total videos: {len(self.video_backgrounds)}")
                 
-                if not self.current_video.isOpened():
-                    print(f"Failed to open video: {video_path}")
+                cap = cv2.VideoCapture(video_path)
+                if cap.isOpened():
+                    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+                    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                    fps = cap.get(cv2.CAP_PROP_FPS)
+                    print(f"Video properties: {width}x{height} @ {fps}fps")
+                    return cap
                 else:
-                    print(f"Successfully opened video: {video_path}")
-                    # Set video properties
-                    self.current_video.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
-                    self.current_video.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
+                    print("Failed to open video file")
+                    return None
         except Exception as e:
             print(f"Video initialization error: {e}")
+            return None
 
 
     def background_selected(self, index):
