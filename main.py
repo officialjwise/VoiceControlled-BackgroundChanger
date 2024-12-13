@@ -223,65 +223,46 @@ class VirtualBackgroundApp(QMainWindow):
 
 
     def setup_audio_visualization(self):
-        """Setup audio visualization"""
+        """Setup audio visualization in the main UI"""
         try:
-            # Create audio level widget
-            audio_container = QWidget()
-            audio_layout = QVBoxLayout(audio_container)
+            # Create audio level container
+            self.audio_container = QWidget()
+            audio_layout = QHBoxLayout(self.audio_container)
             
-            # Create label
+            # Create mic label and level indicator
             mic_label = QLabel("Mic")
-            mic_label.setAlignment(Qt.AlignCenter)
-            audio_layout.addWidget(mic_label)
-            
-            # Create level indicator
             self.audio_level = QProgressBar()
             self.audio_level.setOrientation(Qt.Vertical)
-            self.audio_level.setRange(0, 100)
+            self.audio_level.setMinimum(0)
+            self.audio_level.setMaximum(100)
             self.audio_level.setValue(0)
             self.audio_level.setFixedWidth(20)
             self.audio_level.setFixedHeight(100)
             self.audio_level.setTextVisible(False)
+            self.audio_level.setStyleSheet("""
+                QProgressBar {
+                    border: 2px solid grey;
+                    border-radius: 5px;
+                    background-color: #303030;
+                }
+                QProgressBar::chunk {
+                    background-color: #4CAF50;
+                    width: 20px;
+                }
+            """)
+            
+            # Add to layout
+            audio_layout.addWidget(mic_label)
             audio_layout.addWidget(self.audio_level)
             
-            # Add spacer
-            audio_layout.addStretch()
-            
-            # Add to controls layout
-            self.right_controls.addWidget(audio_container)
+            # Add to main UI controls
+            self.controls_layout.addWidget(self.audio_container)
             
             # Start audio monitoring
             self.start_audio_monitoring()
             print("Audio visualization setup complete")
         except Exception as e:
             print(f"Audio visualization setup error: {e}")
-
-    def start_audio_monitoring(self):
-        """Start monitoring audio levels"""
-        try:
-            self.audio_thread = threading.Thread(target=self.monitor_audio, daemon=True)
-            self.audio_thread.start()
-            print("Audio monitoring started")
-        except Exception as e:
-            print(f"Audio monitoring error: {e}")
-
-    def monitor_audio(self):
-        """Monitor audio levels"""
-        try:
-            p = pyaudio.PyAudio()
-            stream = p.open(format=pyaudio.paFloat32,
-                        channels=1,
-                        rate=44100,
-                        input=True,
-                        frames_per_buffer=1024,
-                        stream_callback=self.audio_callback)
-            
-            stream.start_stream()
-            while stream.is_active():
-                time.sleep(0.1)
-                
-        except Exception as e:
-            print(f"Audio monitoring error: {e}")
 
     def audio_callback(self, in_data, frame_count, time_info, status):
         """Handle audio data for visualization"""
@@ -365,20 +346,25 @@ class VirtualBackgroundApp(QMainWindow):
         """Handle background mode changes"""
         try:
             mode = self.bg_combo.currentText()
+            print(f"Changing to mode: {mode}")
             
             if mode == "Video Backgrounds":
-                self.current_video_index = 0
-                self.init_video_background()
-                print("Switched to video background mode")
+                if self.video_backgrounds:
+                    self.current_video_index = 0
+                    self.init_video_background()
+                    print("Initialized video background")
+                else:
+                    print("No video backgrounds available")
             else:
                 # Clean up video if switching away from video mode
                 if hasattr(self, 'current_video') and self.current_video is not None:
                     self.current_video.release()
                     self.current_video = None
-                    
+            
             self.statusBar.showMessage(f"Switched to {mode}")
         except Exception as e:
             print(f"Mode change error: {e}")
+
 
 
     def setup_video_display(self, layout):
@@ -471,20 +457,23 @@ class VirtualBackgroundApp(QMainWindow):
         try:
             if not self.video_backgrounds:
                 return np.ones((h, w, 3), dtype=np.uint8) * [0, 120, 255]
-
-            # Check if video needs to be initialized
+            
+            # Initialize video if needed
             if not hasattr(self, 'current_video') or self.current_video is None:
                 self.init_video_background()
-            
+                
             if self.current_video is not None and self.current_video.isOpened():
                 ret, frame = self.current_video.read()
                 if not ret:
+                    # Reset video to beginning
                     self.current_video.set(cv2.CAP_PROP_POS_FRAMES, 0)
                     ret, frame = self.current_video.read()
                 
                 if ret and frame is not None:
-                    return cv2.resize(frame, (w, h))
-            
+                    # Resize frame to match dimensions
+                    frame = cv2.resize(frame, (w, h))
+                    return frame
+                    
             return np.ones((h, w, 3), dtype=np.uint8) * [0, 120, 255]
             
         except Exception as e:
@@ -849,6 +838,37 @@ class VirtualBackgroundApp(QMainWindow):
             print("Speech recognition initialized")
         except Exception as e:
             print(f"Speech recognition setup error: {e}")
+
+    def next_video_background(self):
+        """Switch to next video background"""
+        try:
+            if self.video_backgrounds:
+                self.current_video_index = (self.current_video_index + 1) % len(self.video_backgrounds)
+                self.init_video_background()
+                print(f"Switched to video {self.current_video_index}")
+        except Exception as e:
+            print(f"Next video error: {e}")
+
+
+    def load_video_backgrounds(self):
+        """Load and validate video backgrounds"""
+        try:
+            video_folder = "video_backgrounds"
+            for file in os.listdir(video_folder):
+                if file.lower().endswith(('.mp4', '.avi')):
+                    video_path = os.path.join(video_folder, file)
+                    # Test if video is readable
+                    test_cap = cv2.VideoCapture(video_path)
+                    if test_cap.isOpened():
+                        self.video_backgrounds.append(video_path)
+                        print(f"Successfully loaded video: {file}")
+                    else:
+                        print(f"Failed to load video: {file}")
+                    test_cap.release()
+            
+            print(f"Total videos loaded: {len(self.video_backgrounds)}")
+        except Exception as e:
+            print(f"Video loading error: {e}")
 
     def listen_for_commands(self):
         """Listen for voice commands"""
@@ -1300,20 +1320,27 @@ class VirtualBackgroundApp(QMainWindow):
             print(f"Mode change error: {e}")
 
     def init_video_background(self):
-        """Initialize current video background"""
+        """Initialize or reinitialize video background"""
         try:
             if self.video_backgrounds:
+                # Close existing video if any
                 if hasattr(self, 'current_video') and self.current_video is not None:
                     self.current_video.release()
                 
+                # Open new video
                 video_path = self.video_backgrounds[self.current_video_index]
                 self.current_video = cv2.VideoCapture(video_path)
-                print(f"Initialized video: {video_path}")
                 
                 if not self.current_video.isOpened():
                     print(f"Failed to open video: {video_path}")
+                else:
+                    print(f"Successfully opened video: {video_path}")
+                    # Set video properties
+                    self.current_video.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+                    self.current_video.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
         except Exception as e:
-            print(f"Video init error: {e}")
+            print(f"Video initialization error: {e}")
+
 
     def background_selected(self, index):
         """Handle background selection"""
