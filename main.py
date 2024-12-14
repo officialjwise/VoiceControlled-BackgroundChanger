@@ -1,3 +1,39 @@
+"""
+VoiceControlled-BackgroundChanger - Utility Module
+Author: Official J-Wise (@daniel4_kodua)
+Copyright (c) 2024 Official J-Wise
+Licensed under MIT License
+
+GitHub: https://github.com/officialjwise/VoiceControlled-BackgroundChanger
+
+This application provides real-time background replacement, AR effects, and voice control
+capabilities for video calls and content creation.
+
+Copyright (c) 2024 Official J-Wise
+Licensed under the MIT License (see LICENSE file for details)
+
+THIS CODE IS PROVIDED AS-IS, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED.
+"""
+
+__author__ = "Official J-Wise"
+__copyright__ = "Copyright (c) 2024 Official J-Wise"
+__license__ = "MIT"
+__version__ = "1.0.0"
+__maintainer__ = "Official J-Wise"
+__email__ = "officialjwise20@gmail.com"
+__status__ = "Production"
+
+########################################################################################
+#                                                                                      #
+#  NOTICE: This code is the intellectual property of Official J-Wise                   #
+#  While this is an open-source project, proper attribution is required when using     #
+#  or modifying this code.                                                            #
+#                                                                                      #
+########################################################################################
+
+
+
+
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, 
                            QPushButton, QWidget, QHBoxLayout, QComboBox, 
                            QStatusBar, QScrollArea, QGridLayout, QSlider,
